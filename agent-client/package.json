@@ -1,0 +1,21 @@
+{
+  "name": "veriview-agent-demo",
+  "version": "1.0.0",
+  "description": "Demo AI agent using VeriView SDK for safe web navigation",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "keywords": [
+    "veriview",
+    "ai-agent",
+    "security"
+  ],
+  "author": "VeriView",
+  "license": "MIT",
+  "dependencies": {
+    "veriview-sdk": "file:../veriview-sdk"
+  }
+}
