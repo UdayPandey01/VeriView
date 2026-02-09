@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VeriView - Security Dashboard</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: "Consolas", "Courier New", monospace;
+        background: #0a0a1a;
+        color: #e0e0e0;
+        min-height: 100vh;
+      }
+
+      .header {
+        background: #111128;
+        padding: 20px 30px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid #222;
+      }
+      .header h1 {
+        color: #00ff88;
+        font-size: 22px;
+        letter-spacing: 2px;
+      }
+      .header .status {
+        padding: 8px 20px;
+        border-radius: 20px;
+        font-weight: bold;
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+      .status-secure {
+        background: #003322;
+        color: #00ff88;
+        border: 1px solid #00ff88;
+      }
+      .status-threat {
+        background: #330011;
+        color: #ff3355;
+        border: 1px solid #ff3355;
+        animation: pulse 1s infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.6;
+        }
+      }
+
+      .main {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        padding: 20px;
+      }
+
+      .panel {
+        background: #111128;
+        border: 1px solid #222;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .panel-header {
+        background: #1a1a3a;
+        padding: 12px 16px;
+        font-size: 13px;
+        color: #888;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        border-bottom: 1px solid #222;
+      }
+
+      .log-feed {
+        height: 500px;
+        overflow-y: auto;
+        padding: 0;
+      }
+      .log-entry {
+        padding: 8px 16px;
+        border-bottom: 1px solid #1a1a2e;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .log-entry:hover {
+        background: #1a1a3a;
+      }
+      .log-time {
+        color: #555;
+        margin-right: 8px;
+      }
+      .log-phase {
+        color: #00aaff;
+        font-weight: bold;
+        margin-right: 6px;
+      }
+      .log-url {
+        color: #888;
+        font-size: 11px;
+      }
+      .log-msg {
+        color: #ccc;
+      }
+      .log-risk-high {
+        border-left: 3px solid #ff3355;
+      }
+      .log-risk-low {
+        border-left: 3px solid #00ff88;
+      }
+
+      .controls {
+        padding: 20px;
+      }
+      .controls input {
+        width: 100%;
+        padding: 12px;
+        background: #0a0a1a;
+        border: 1px solid #333;
+        border-radius: 6px;
+        color: #e0e0e0;
+        font-family: inherit;
+        font-size: 14px;
+        margin-bottom: 10px;
+      }
+      .controls input:focus {
+        outline: none;
+        border-color: #00aaff;
+      }
+
+      .btn-row {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-family: inherit;
+        font-weight: bold;
+        font-size: 13px;
+      }
+      .btn-safe {
+        background: #003322;
+        color: #00ff88;
+        border: 1px solid #00ff88;
+        flex: 1;
+      }
+      .btn-safe:hover {
+        background: #004433;
+      }
+      .btn-attack {
+        background: #330011;
+        color: #ff3355;
+        border: 1px solid #ff3355;
+        flex: 1;
+      }
+      .btn-attack:hover {
+        background: #440022;
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 10px;
+        margin-top: 16px;
+      }
+      .stat-card {
+        background: #0a0a1a;
+        border: 1px solid #222;
+        border-radius: 6px;
+        padding: 14px;
+        text-align: center;
+      }
+      .stat-val {
+        font-size: 28px;
+        font-weight: bold;
+      }
+      .stat-label {
+        font-size: 11px;
+        color: #666;
+        text-transform: uppercase;
+        margin-top: 4px;
+      }
+      .val-green {
+        color: #00ff88;
+      }
+      .val-red {
+        color: #ff3355;
+      }
+      .val-blue {
+        color: #00aaff;
+      }
+
+      .log-feed::-webkit-scrollbar {
+        width: 6px;
+      }
+      .log-feed::-webkit-scrollbar-track {
+        background: #111128;
+      }
+      .log-feed::-webkit-scrollbar-thumb {
+        background: #333;
+        border-radius: 3px;
+      }
+
+      .full-width {
+        grid-column: 1 / -1;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>VERIVIEW DASHBOARD</h1>
+      <div class="status status-secure" id="global-status">SYSTEM SECURE</div>
+    </div>
+
+    <div class="main">
+      <div class="panel">
+        <div class="panel-header">Live Pipeline Feed</div>
+        <div class="log-feed" id="log-feed"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">Controls</div>
+        <div class="controls">
+          <input
+            type="text"
+            id="url-input"
+            placeholder="Enter URL to scan..."
+            value="http://localhost:8000/trap.html"
+          />
+          <div class="btn-row">
+            <button class="btn btn-safe" onclick="runSafe()">
+              SCAN (Safe Mode)
+            </button>
+            <button class="btn btn-attack" onclick="runAttack()">
+              SCAN (Attack Mode)
+            </button>
+          </div>
+
+          <div class="stats">
+            <div class="stat-card">
+              <div class="stat-val val-blue" id="stat-scans">0</div>
+              <div class="stat-label">Total Scans</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-val val-green" id="stat-safe">0</div>
+              <div class="stat-label">Safe</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-val val-red" id="stat-blocked">0</div>
+              <div class="stat-label">Blocked</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel full-width">
+        <div class="panel-header">Latest Scan Result</div>
+        <pre
+          id="scan-result"
+          style="
+            padding: 16px;
+            font-size: 13px;
+            max-height: 300px;
+            overflow-y: auto;
+            color: #aaa;
+          "
+        ></pre>
+      </div>
+    </div>
+
+    <script>
+      const GATEWAY = "http://localhost:8082";
+      let totalScans = 0;
+      let totalSafe = 0;
+      let totalBlocked = 0;
+      let lastLogCount = 0;
+
+      async function scanUrl(url) {
+        totalScans++;
+        document.getElementById("stat-scans").textContent = totalScans;
+
+        try {
+          const res = await fetch(`${GATEWAY}/api/v1/navigate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url }),
+          });
+          const data = await res.json();
+
+          if (data.blocked || data.risk_score > 50) {
+            totalBlocked++;
+            document.getElementById("stat-blocked").textContent = totalBlocked;
+            document.getElementById("global-status").className =
+              "status status-threat";
+            document.getElementById("global-status").textContent =
+              "THREAT BLOCKED";
+          } else {
+            totalSafe++;
+            document.getElementById("stat-safe").textContent = totalSafe;
+            document.getElementById("global-status").className =
+              "status status-secure";
+            document.getElementById("global-status").textContent =
+              "SYSTEM SECURE";
+          }
+
+          document.getElementById("scan-result").textContent = JSON.stringify(
+            data,
+            null,
+            2,
+          );
+        } catch (e) {
+          document.getElementById("scan-result").textContent =
+            "Error: " + e.message;
+        }
+      }
+
+      function runSafe() {
+        const base = document.getElementById("url-input").value.split("?")[0];
+        scanUrl(base);
+      }
+
+      function runAttack() {
+        const base = document.getElementById("url-input").value.split("?")[0];
+        scanUrl(base + "?attack=true");
+      }
+
+      async function pollLogs() {
+        try {
+          const res = await fetch(`${GATEWAY}/api/v1/logs`);
+          const logs = await res.json();
+
+          if (logs.length > lastLogCount) {
+            const feed = document.getElementById("log-feed");
+            const newLogs = logs.slice(lastLogCount);
+            for (const log of newLogs) {
+              const div = document.createElement("div");
+              const riskClass =
+                log.risk_score > 50 ? "log-risk-high" : "log-risk-low";
+              div.className = `log-entry ${riskClass}`;
+              div.innerHTML = `
+                            <span class="log-time">${log.timestamp}</span>
+                            <span class="log-phase">[${log.phase}]</span>
+                            <span class="log-msg">${log.message}</span>
+                            <br><span class="log-url">${log.url}</span>
+                        `;
+              feed.appendChild(div);
+            }
+            feed.scrollTop = feed.scrollHeight;
+            lastLogCount = logs.length;
+          }
+        } catch (e) {}
+      }
+
+      setInterval(pollLogs, 1000);
+    </script>
+  </body>
+</html>
