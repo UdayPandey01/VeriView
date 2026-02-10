@@ -227,7 +227,7 @@ The VeriView dashboard provides **real-time visualization** of the security pipe
 ### **Install the VeriView SDK**
 
 ```bash
-npm install veriview-sdk
+npm install @veriview/veriview-core
 ```
 
 **Or download directly:**
@@ -264,7 +264,7 @@ const content = await page.content();
 #### **After (Protected):**
 
 ```javascript
-import { VeriView } from "veriview-sdk";
+import { VeriView } from "@veriview/veriview-core";
 
 const vv = new VeriView({
   gatewayUrl: "http://localhost:8082",
@@ -286,7 +286,7 @@ if (!result.blocked) {
 ### **Advanced: Custom Agent Integration**
 
 ```javascript
-import { VeriView } from "veriview-sdk";
+import { VeriView } from "@veriview/veriview-core";
 
 const agent = new VeriView({ gatewayUrl: "http://localhost:8082" });
 
