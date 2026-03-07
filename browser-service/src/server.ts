@@ -1,5 +1,5 @@
 import express from 'express';
-import { chromium, Browser } from 'playwright';
+import { chromium, Browser, BrowserContext } from 'playwright';
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
@@ -125,9 +125,11 @@ app.post('/snap', async (req, res) => {
     const { url } = req.body;
     console.log(`[SNAP] Received request for ${url}`);
 
+    let context: BrowserContext | null = null;
+
     try {
         const browser = await initBrowser();
-        const context = await browser.newContext({
+        context = await browser.newContext({
             viewport: { width: 1920, height: 1080 },
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         });
@@ -146,15 +148,18 @@ app.post('/snap', async (req, res) => {
             observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
         });
 
-        await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
-        await page.waitForTimeout(1500);
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+        try {
+            await page.waitForLoadState('networkidle', { timeout: 3000 });
+        } catch (e: any) {
+            console.warn(`Network idle wait timed out for ${url}: ${e?.message ?? e}`);
+        }
 
         const result = await injectSanitizer(page);
         const cleanDOM = result.cleanNodes;
         const suspiciousDOM = result.suspiciousNodes;
         const screenshotBuffer = await page.screenshot({ fullPage: false, type: 'jpeg', quality: 80 });
-
-        await context.close();
 
         console.log(`[SNAP] Done. ${cleanDOM.length} clean, ${suspiciousDOM.length} suspicious, screenshot captured.`);
 
@@ -167,6 +172,14 @@ app.post('/snap', async (req, res) => {
     } catch (e: any) {
         console.error("Browser Error:", e.message);
         res.status(500).json({ error: "Pipeline Failed at Phase 2" });
+    } finally {
+        if (context) {
+            try {
+                await context.close();
+            } catch (e: any) {
+                console.error("Failed to close browser context:", e?.message ?? e);
+            }
+        }
     }
 });
 

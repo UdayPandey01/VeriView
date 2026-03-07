@@ -1,20 +1,22 @@
 {
-  "name": "veriview-sdk",
+  "name": "@veriview/veriview-core",
   "version": "1.0.0",
-  "description": "TypeScript SDK for VeriView security proxy - detects hidden prompt injection attacks",
+  "description": "Zero-Trust Visual Firewall for AI Agents.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
     "security",
-    "prompt-injection",
     "ai-safety",
-    "web-security"
+    "veriview"
   ],
-  "author": "VeriView",
+  "author": "VeriView Team",
   "license": "MIT",
   "dependencies": {
     "axios": "^1.6.0"

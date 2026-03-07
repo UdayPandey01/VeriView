@@ -127,11 +127,34 @@ pub async fn secure_navigate(
         .await;
 
     let browser_data: BrowserResponse = match browser_res {
-        Ok(res) => res.json().await.unwrap_or(BrowserResponse {
-            clean_dom: vec![],
-            suspicious_nodes: None,
-            screenshot_b64: "".into(),
-        }),
+        Ok(res) => {
+            if !res.status().is_success() {
+                let msg = format!("Browser Service failed with status: {}", res.status());
+                push_log(&store, url, "Phase 2", &msg, 100);
+                return Json(NavigateResponse {
+                    safe_snapshot: vec![],
+                    interactive_elements: vec![],
+                    risk_score: 100,
+                    blocked: true,
+                    logs: vec![msg],
+                });
+            }
+
+            match res.json().await {
+                Ok(parsed) => parsed,
+                Err(e) => {
+                    let msg = format!("Browser Service JSON parse failed: {}", e);
+                    push_log(&store, url, "Phase 2", &msg, 100);
+                    return Json(NavigateResponse {
+                        safe_snapshot: vec![],
+                        interactive_elements: vec![],
+                        risk_score: 100,
+                        blocked: true,
+                        logs: vec![msg],
+                    });
+                }
+            }
+        }
         Err(e) => {
             let msg = format!("Browser Service failed: {}", e);
             push_log(&store, url, "Phase 2", &msg, 100);
@@ -156,23 +179,6 @@ pub async fn secure_navigate(
     );
     push_log(&store, url, "Phase 2", &msg, 0);
     logs.push(format!("Phase 2: {}", msg));
-
-    if suspicious_count > 0 {
-        push_log(
-            &store,
-            url,
-            "Phase 2",
-            &format!(
-                "SUSPICIOUS: {} hidden/invisible elements found in DOM",
-                suspicious_count
-            ),
-            50,
-        );
-        logs.push(format!(
-            "Phase 2 WARNING: {} hidden/invisible DOM elements found",
-            suspicious_count
-        ));
-    }
 
     let interactive_elements: Vec<InteractiveElement> = browser_data
         .clean_dom
@@ -209,6 +215,58 @@ pub async fn secure_navigate(
         .take(50)
         .collect();
 
+    let mut hidden_threats: Vec<String> = vec![];
+
+    if let Some(ref suspicious) = browser_data.suspicious_nodes {
+        for node in suspicious {
+            let lower = node.text.to_lowercase();
+            for keyword in DANGER_KEYWORDS {
+                if lower.contains(keyword) {
+                    hidden_threats.push(format!(
+                        "[{}] ({}) \"{}\"",
+                        node.tag,
+                        node.reasons,
+                        node.text.chars().take(120).collect::<String>()
+                    ));
+                    break;
+                }
+            }
+        }
+    }
+
+    // Phase 1 Fast-Path: if there are no suspicious nodes and no hidden threats detected,
+    // short-circuit and skip the Vision service entirely.
+    if suspicious_count == 0 && hidden_threats.is_empty() {
+        let msg = "Fast-path: No suspicious DOM elements or hidden threats detected. Skipping Vision analysis.";
+        push_log(&store, url, "Phase 3", msg, 0);
+        logs.push(format!("Phase 3: {}", msg));
+
+        return Json(NavigateResponse {
+            safe_snapshot: dom_preview,
+            interactive_elements,
+            risk_score: 0,
+            blocked: false,
+            logs,
+        });
+    }
+
+    if suspicious_count > 0 {
+        push_log(
+            &store,
+            url,
+            "Phase 2",
+            &format!(
+                "SUSPICIOUS: {} hidden/invisible elements found in DOM",
+                suspicious_count
+            ),
+            50,
+        );
+        logs.push(format!(
+            "Phase 2 WARNING: {} hidden/invisible DOM elements found",
+            suspicious_count
+        ));
+    }
+
     push_log(
         &store,
         url,
@@ -225,22 +283,49 @@ pub async fn secure_navigate(
         }))
         .send()
         .await;
-
     let vision_data: VisionResponse = match vision_res {
-        Ok(res) => res.json().await.unwrap_or(VisionResponse {
-            visible_text: vec![],
-            injection_attempt: false,
-            risk_score: None,
-            reason: None,
-            ocr_text: None,
-        }),
-        Err(_) => VisionResponse {
-            visible_text: vec![],
-            injection_attempt: false,
-            risk_score: None,
-            reason: None,
-            ocr_text: None,
-        },
+        Ok(res) => {
+            if !res.status().is_success() {
+                let msg = format!("Vision Service failed with status: {}", res.status());
+                push_log(&store, url, "Phase 3", &msg, 100);
+                logs.push(format!("Phase 3: {}", msg));
+                return Json(NavigateResponse {
+                    safe_snapshot: vec![],
+                    interactive_elements,
+                    risk_score: 100,
+                    blocked: true,
+                    logs,
+                });
+            }
+
+            match res.json().await {
+                Ok(parsed) => parsed,
+                Err(e) => {
+                    let msg = format!("Vision Service JSON parse failed: {}", e);
+                    push_log(&store, url, "Phase 3", &msg, 100);
+                    logs.push(format!("Phase 3: {}", msg));
+                    return Json(NavigateResponse {
+                        safe_snapshot: vec![],
+                        interactive_elements,
+                        risk_score: 100,
+                        blocked: true,
+                        logs,
+                    });
+                }
+            }
+        }
+        Err(e) => {
+            let msg = format!("Vision Service failed: {}", e);
+            push_log(&store, url, "Phase 3", &msg, 100);
+            logs.push(format!("Phase 3: {}", msg));
+            return Json(NavigateResponse {
+                safe_snapshot: vec![],
+                interactive_elements,
+                risk_score: 100,
+                blocked: true,
+                logs,
+            });
+        }
     };
 
     if let Some(ref ocr_text) = vision_data.ocr_text {
@@ -259,25 +344,6 @@ pub async fn secure_navigate(
             &format!("Gemini: {}", reason),
             vision_data.risk_score.unwrap_or(0),
         );
-    }
-
-    let mut hidden_threats: Vec<String> = vec![];
-
-    if let Some(ref suspicious) = browser_data.suspicious_nodes {
-        for node in suspicious {
-            let lower = node.text.to_lowercase();
-            for keyword in DANGER_KEYWORDS {
-                if lower.contains(keyword) {
-                    hidden_threats.push(format!(
-                        "[{}] ({}) \"{}\"",
-                        node.tag,
-                        node.reasons,
-                        node.text.chars().take(120).collect::<String>()
-                    ));
-                    break;
-                }
-            }
-        }
     }
 
     let mut risk_score = vision_data.risk_score.unwrap_or(0);
