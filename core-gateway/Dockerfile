@@ -1,12 +1,15 @@
-FROM rust:1.75 as builder
+FROM rust:1.77-slim AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY . .
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir src && echo "fn main() {}" > src/main.rs && cargo build --release || true && rm -rf src
+COPY src ./src
 RUN cargo build --release
-
-# Runtime Stage (Tiny Image)
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
+RUN useradd -m -u 1000 veriview
 WORKDIR /app
-# Install OpenSSL (Required for HTTP requests)
-RUN apt-get update && apt-get install -y libssl-dev ca-certificates && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /app/target/release/core-gateway .
-CMD ["./core-gateway"]
+COPY --from=builder /app/target/release/core-gateway /usr/local/bin/core-gateway
+USER veriview
+EXPOSE 8082
+CMD ["core-gateway"]

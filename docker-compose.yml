@@ -1,0 +1,65 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: vv-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - veriview-net
+    restart: unless-stopped
+
+  browser-service:
+    build: ./browser-service
+    container_name: vv-browser
+    ports:
+      - "3002:3002"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    networks:
+      - veriview-net
+    restart: unless-stopped
+
+  vision-service:
+    build: ./vision-service
+    container_name: vv-vision
+    ports:
+      - "5000:5000"
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+    networks:
+      - veriview-net
+    restart: unless-stopped
+
+  gateway:
+    build: ./core-gateway
+    container_name: vv-gateway
+    ports:
+      - "8082:8082"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - veriview-net
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis:6379/
+      - BROWSER_URL=http://browser-service:3002
+      - VISION_URL=http://vision-service:5000
+      - VALID_API_KEYS=${VALID_API_KEYS:-key1,key2}
+
+networks:
+  veriview-net:
+    driver: bridge
+
