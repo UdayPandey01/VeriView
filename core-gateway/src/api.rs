@@ -1,8 +1,17 @@
-use axum::Json;
-use axum::extract::State;
+use axum::{
+    extract::State,
+    http::{Request, StatusCode},
+    middleware::Next,
+    response::{IntoResponse, Response},
+    Json,
+};
+use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
+use tokio::sync::Mutex as TokioMutex;
 
 #[derive(Clone, Serialize, Debug)]
 pub struct LogEntry {
@@ -14,6 +23,129 @@ pub struct LogEntry {
 }
 
 pub type LogStore = Arc<Mutex<Vec<LogEntry>>>;
+
+#[derive(Clone)]
+pub struct RedisCache {
+    conn: Arc<TokioMutex<redis::aio::MultiplexedConnection>>,
+}
+
+impl RedisCache {
+    pub fn new(conn: redis::aio::MultiplexedConnection) -> Self {
+        Self {
+            conn: Arc::new(TokioMutex::new(conn)),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct AppState {
+    pub log_store: LogStore,
+    pub redis: Option<RedisCache>,
+    pub valid_api_keys: HashSet<String>,
+}
+
+impl AppState {
+    pub fn new(
+        log_store: LogStore,
+        redis: Option<RedisCache>,
+        valid_api_keys: HashSet<String>,
+    ) -> Self {
+        Self {
+            log_store,
+            redis,
+            valid_api_keys,
+        }
+    }
+}
+
+/// Load valid API keys from VALID_API_KEYS env var (comma-separated).
+pub fn load_valid_api_keys() -> HashSet<String> {
+    let keys: HashSet<String> = std::env::var("VALID_API_KEYS")
+        .unwrap_or_else(|_| String::new())
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if keys.is_empty() {
+        tracing::warn!("VALID_API_KEYS is empty; /api/v1/navigate will reject all requests with 401");
+    }
+    keys
+}
+
+const RATE_LIMIT_MAX: i64 = 60;
+const RATE_LIMIT_WINDOW_SECS: u64 = 60;
+
+fn api_key_redis_id(api_key: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(api_key.as_bytes());
+    let digest = hasher.finalize();
+    digest.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+}
+
+/// Returns Ok(true) if allowed, Ok(false) if rate limited, Err if Redis failed (fail-open).
+async fn check_rate_limit(state: &AppState, api_key: &str) -> Result<bool, ()> {
+    let Some(redis_cache) = state.redis.as_ref() else {
+        tracing::error!("Rate limit: Redis unavailable; failing open (allowing request)");
+        return Ok(true);
+    };
+
+    let minute = chrono::Utc::now().format("%Y%m%d%H%M").to_string();
+    let id = api_key_redis_id(api_key);
+    let key = format!("vv:ratelimit:{}:{}", id, minute);
+
+    let mut conn = redis_cache.conn.lock().await;
+    let count: i64 = match conn.incr(&key, 1i64).await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("Rate limit: Redis INCR failed; failing open: {}", e);
+            return Err(());
+        }
+    };
+
+    if count == 1 {
+        let ttl = RATE_LIMIT_WINDOW_SECS as i64;
+        if let Err(e) = conn.expire::<_, ()>(&key, ttl).await {
+            tracing::warn!("Rate limit: Redis EXPIRE failed (key may not expire): {}", e);
+        }
+    }
+
+    Ok(count <= RATE_LIMIT_MAX)
+}
+
+/// Middleware: auth (Bearer token) + rate limit. Returns 401/429 or calls next.
+pub async fn auth_and_rate_limit(
+    State(state): State<AppState>,
+    request: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
+    let auth = request
+        .headers()
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok());
+    let token = match auth {
+        Some(h) if h.starts_with("Bearer ") => h["Bearer ".len()..].trim(),
+        _ => {
+            return (StatusCode::UNAUTHORIZED, "Missing or invalid Authorization header")
+                .into_response();
+        }
+    };
+
+    if !state.valid_api_keys.contains(token) {
+        return (StatusCode::UNAUTHORIZED, "Invalid API key").into_response();
+    }
+
+    match check_rate_limit(&state, token).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded").into_response();
+        }
+        Err(()) => {
+            tracing::error!("Rate limit check failed; failing open for /api/v1/navigate");
+        }
+    }
+
+    next.run(request).await
+}
 
 pub fn new_log_store() -> LogStore {
     Arc::new(Mutex::new(Vec::new()))
@@ -93,7 +225,7 @@ pub struct NavigateRequest {
     pub url: String,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct NavigateResponse {
     pub safe_snapshot: Vec<String>,
     pub interactive_elements: Vec<InteractiveElement>,
@@ -102,22 +234,90 @@ pub struct NavigateResponse {
     pub logs: Vec<String>,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct InteractiveElement {
     pub vv_id: String,
     pub tag: String,
     pub text: String,
 }
 
+const CACHE_TTL_SECONDS: u64 = 60;
+
+fn url_cache_key(url: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(url.as_bytes());
+    let digest = hasher.finalize();
+    let hex = digest.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+    format!("vv:url:{}", hex)
+}
+
+async fn redis_cache_get(state: &AppState, key: &str) -> Option<NavigateResponse> {
+    let redis_cache = state.redis.as_ref()?;
+    let mut conn = redis_cache.conn.lock().await;
+    let cached: Option<String> = match conn.get(key).await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("Redis GET failed (falling back): {}", e);
+            return None;
+        }
+    };
+
+    let raw = cached?;
+    match serde_json::from_str::<NavigateResponse>(&raw) {
+        Ok(v) => Some(v),
+        Err(e) => {
+            tracing::warn!("Redis cached value JSON decode failed (ignoring): {}", e);
+            None
+        }
+    }
+}
+
+async fn redis_cache_setex(state: &AppState, key: &str, value: &NavigateResponse) {
+    let Some(redis_cache) = state.redis.as_ref() else {
+        return;
+    };
+
+    let serialized = match serde_json::to_string(value) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!("Redis cache serialize failed (skipping): {}", e);
+            return;
+        }
+    };
+
+    let mut conn = redis_cache.conn.lock().await;
+    if let Err(e) = conn.set_ex::<_, _, ()>(key, serialized, CACHE_TTL_SECONDS).await {
+        tracing::warn!("Redis SETEX failed (continuing): {}", e);
+    }
+}
+
 pub async fn secure_navigate(
-    State(store): State<LogStore>,
+    State(state): State<AppState>,
     Json(payload): Json<NavigateRequest>,
 ) -> Json<NavigateResponse> {
     let url = &payload.url;
+    let store = &state.log_store;
+    let cache_key = url_cache_key(url);
     let client = reqwest::Client::new();
     let mut logs: Vec<String> = vec![];
 
-    push_log(&store, url, "Phase 1", "Handshake initiated", 0);
+    if let Some(mut cached) = redis_cache_get(&state, &cache_key).await {
+        cached
+            .logs
+            .push("Phase 1: Cache HIT — returning verified snapshot".to_string());
+        push_log(
+            store,
+            url,
+            "Phase 1",
+            "Cache HIT — returning verified snapshot",
+            0,
+        );
+        // Refresh TTL on hot items; failures here should not affect the request.
+        redis_cache_setex(&state, &cache_key, &cached).await;
+        return Json(cached);
+    }
+
+    push_log(store, url, "Phase 1", "Handshake initiated", 0);
     logs.push("Phase 1: Handshake initiated".to_string());
 
     let browser_res = client
@@ -130,7 +330,7 @@ pub async fn secure_navigate(
         Ok(res) => {
             if !res.status().is_success() {
                 let msg = format!("Browser Service failed with status: {}", res.status());
-                push_log(&store, url, "Phase 2", &msg, 100);
+                push_log(store, url, "Phase 2", &msg, 100);
                 return Json(NavigateResponse {
                     safe_snapshot: vec![],
                     interactive_elements: vec![],
@@ -144,7 +344,7 @@ pub async fn secure_navigate(
                 Ok(parsed) => parsed,
                 Err(e) => {
                     let msg = format!("Browser Service JSON parse failed: {}", e);
-                    push_log(&store, url, "Phase 2", &msg, 100);
+                    push_log(store, url, "Phase 2", &msg, 100);
                     return Json(NavigateResponse {
                         safe_snapshot: vec![],
                         interactive_elements: vec![],
@@ -157,7 +357,7 @@ pub async fn secure_navigate(
         }
         Err(e) => {
             let msg = format!("Browser Service failed: {}", e);
-            push_log(&store, url, "Phase 2", &msg, 100);
+            push_log(store, url, "Phase 2", &msg, 100);
             return Json(NavigateResponse {
                 safe_snapshot: vec![],
                 interactive_elements: vec![],
@@ -177,7 +377,7 @@ pub async fn secure_navigate(
         "{} clean DOM nodes, {} suspicious nodes detected",
         dom_count, suspicious_count
     );
-    push_log(&store, url, "Phase 2", &msg, 0);
+    push_log(store, url, "Phase 2", &msg, 0);
     logs.push(format!("Phase 2: {}", msg));
 
     let interactive_elements: Vec<InteractiveElement> = browser_data
@@ -238,16 +438,18 @@ pub async fn secure_navigate(
     // short-circuit and skip the Vision service entirely.
     if suspicious_count == 0 && hidden_threats.is_empty() {
         let msg = "Fast-path: No suspicious DOM elements or hidden threats detected. Skipping Vision analysis.";
-        push_log(&store, url, "Phase 3", msg, 0);
+        push_log(store, url, "Phase 3", msg, 0);
         logs.push(format!("Phase 3: {}", msg));
 
-        return Json(NavigateResponse {
+        let resp = NavigateResponse {
             safe_snapshot: dom_preview,
             interactive_elements,
             risk_score: 0,
             blocked: false,
             logs,
-        });
+        };
+        redis_cache_setex(&state, &cache_key, &resp).await;
+        return Json(resp);
     }
 
     if suspicious_count > 0 {
@@ -287,7 +489,7 @@ pub async fn secure_navigate(
         Ok(res) => {
             if !res.status().is_success() {
                 let msg = format!("Vision Service failed with status: {}", res.status());
-                push_log(&store, url, "Phase 3", &msg, 100);
+                push_log(store, url, "Phase 3", &msg, 100);
                 logs.push(format!("Phase 3: {}", msg));
                 return Json(NavigateResponse {
                     safe_snapshot: vec![],
@@ -302,7 +504,7 @@ pub async fn secure_navigate(
                 Ok(parsed) => parsed,
                 Err(e) => {
                     let msg = format!("Vision Service JSON parse failed: {}", e);
-                    push_log(&store, url, "Phase 3", &msg, 100);
+                    push_log(store, url, "Phase 3", &msg, 100);
                     logs.push(format!("Phase 3: {}", msg));
                     return Json(NavigateResponse {
                         safe_snapshot: vec![],
@@ -316,7 +518,7 @@ pub async fn secure_navigate(
         }
         Err(e) => {
             let msg = format!("Vision Service failed: {}", e);
-            push_log(&store, url, "Phase 3", &msg, 100);
+            push_log(store, url, "Phase 3", &msg, 100);
             logs.push(format!("Phase 3: {}", msg));
             return Json(NavigateResponse {
                 safe_snapshot: vec![],
@@ -351,11 +553,11 @@ pub async fn secure_navigate(
     if !hidden_threats.is_empty() {
         risk_score = 100;
         let msg = format!("GHOST TEXT DETECTED: {:?}", hidden_threats);
-        push_log(&store, url, "Phase 3", &msg, 100);
+        push_log(store, url, "Phase 3", &msg, 100);
         logs.push(format!("Phase 3 ALERT: {}", msg));
     } else {
         push_log(
-            &store,
+            store,
             url,
             "Phase 3",
             "Visual Air-Gap verified. No ghost text.",
@@ -367,7 +569,7 @@ pub async fn secure_navigate(
     if vision_data.injection_attempt {
         risk_score = 100;
         push_log(
-            &store,
+            store,
             url,
             "Phase 3",
             "Visual Prompt Injection detected by Gemini",
@@ -380,7 +582,7 @@ pub async fn secure_navigate(
 
     if blocked {
         push_log(
-            &store,
+            store,
             url,
             "Phase 4",
             &format!("BLOCKED. Risk score: {}", risk_score),
@@ -389,7 +591,7 @@ pub async fn secure_navigate(
         logs.push(format!("Phase 4: BLOCKED. Risk score: {}", risk_score));
     } else {
         push_log(
-            &store,
+            store,
             url,
             "Phase 4",
             "Safe Snapshot delivered to Agent",
@@ -407,13 +609,16 @@ pub async fn secure_navigate(
         vision_data.visible_text
     };
 
-    Json(NavigateResponse {
+    let resp = NavigateResponse {
         safe_snapshot,
         interactive_elements,
         risk_score,
         blocked,
         logs,
-    })
+    };
+
+    redis_cache_setex(&state, &cache_key, &resp).await;
+    Json(resp)
 }
 
 #[derive(Deserialize, Debug)]
@@ -430,11 +635,12 @@ pub struct AlertResponse {
 }
 
 pub async fn receive_alert(
-    State(store): State<LogStore>,
+    State(state): State<AppState>,
     Json(payload): Json<AlertRequest>,
 ) -> Json<AlertResponse> {
+    let store = &state.log_store;
     push_log(
-        &store,
+        store,
         &payload.url,
         "Watchdog",
         &format!("{}: {}", payload.alert_type, payload.details),
@@ -446,7 +652,7 @@ pub async fn receive_alert(
     })
 }
 
-pub async fn get_logs(State(store): State<LogStore>) -> Json<Vec<LogEntry>> {
-    let logs = store.lock().unwrap_or_else(|e| e.into_inner());
+pub async fn get_logs(State(state): State<AppState>) -> Json<Vec<LogEntry>> {
+    let logs = state.log_store.lock().unwrap_or_else(|e| e.into_inner());
     Json(logs.clone())
 }

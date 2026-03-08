@@ -2,6 +2,7 @@ mod api;
 mod policy;
 
 use axum::{
+    middleware,
     Router,
     routing::{get, post},
 };
@@ -14,14 +15,24 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let log_store = api::new_log_store();
+    let redis_cache = init_redis_cache().await;
+    let valid_api_keys = api::load_valid_api_keys();
+    let state = api::AppState::new(log_store, redis_cache, valid_api_keys);
+
+    let navigate_route = Router::new()
+        .route("/api/v1/navigate", post(api::secure_navigate))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            api::auth_and_rate_limit,
+        ));
 
     let app = Router::new()
         .route("/api/v1/health", get(health_check))
-        .route("/api/v1/navigate", post(api::secure_navigate))
         .route("/api/v1/alert", post(api::receive_alert))
         .route("/api/v1/logs", get(api::get_logs))
+        .merge(navigate_route)
         .layer(CorsLayer::permissive())
-        .with_state(log_store);
+        .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8082));
     println!("VeriView core gateway running on {}", addr);
@@ -32,4 +43,32 @@ async fn main() {
 
 async fn health_check() -> &'static str {
     "OK"
+}
+
+async fn init_redis_cache() -> Option<api::RedisCache> {
+    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1/".to_string());
+    let redis_url = redis_url.trim().to_string();
+    if redis_url.is_empty() || redis_url.eq_ignore_ascii_case("disabled") || redis_url.eq_ignore_ascii_case("off") {
+        tracing::info!("Redis cache disabled (REDIS_URL is empty/off).");
+        return None;
+    }
+
+    let client = match redis::Client::open(redis_url.clone()) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("Redis client init failed for {}: {}", redis_url, e);
+            return None;
+        }
+    };
+
+    match client.get_multiplexed_async_connection().await {
+        Ok(conn) => {
+            tracing::info!("Redis cache enabled.");
+            Some(api::RedisCache::new(conn))
+        }
+        Err(e) => {
+            tracing::warn!("Redis connection failed (cache disabled): {}", e);
+            None
+        }
+    }
 }
