@@ -42,6 +42,7 @@ pub struct AppState {
     pub log_store: LogStore,
     pub redis: Option<RedisCache>,
     pub valid_api_keys: HashSet<String>,
+    pub http_client: reqwest::Client,
 }
 
 impl AppState {
@@ -49,11 +50,13 @@ impl AppState {
         log_store: LogStore,
         redis: Option<RedisCache>,
         valid_api_keys: HashSet<String>,
+        http_client: reqwest::Client,
     ) -> Self {
         Self {
             log_store,
             redis,
             valid_api_keys,
+            http_client,
         }
     }
 }
@@ -298,7 +301,7 @@ pub async fn secure_navigate(
     let url = &payload.url;
     let store = &state.log_store;
     let cache_key = url_cache_key(url);
-    let client = reqwest::Client::new();
+    let client = &state.http_client;
     let mut logs: Vec<String> = vec![];
 
     if let Some(mut cached) = redis_cache_get(&state, &cache_key).await {
@@ -320,8 +323,10 @@ pub async fn secure_navigate(
     push_log(store, url, "Phase 1", "Handshake initiated", 0);
     logs.push("Phase 1: Handshake initiated".to_string());
 
+    let browser_url = std::env::var("BROWSER_URL").unwrap_or_else(|_| "http://localhost:3002".to_string());
+    let browser_base = browser_url.trim_end_matches('/');
     let browser_res = client
-        .post("http://localhost:3002/snap")
+        .post(format!("{}/snap", browser_base))
         .json(&json!({ "url": url }))
         .send()
         .await;
@@ -477,8 +482,10 @@ pub async fn secure_navigate(
         0,
     );
 
+    let vision_url = std::env::var("VISION_URL").unwrap_or_else(|_| "http://localhost:5000".to_string());
+    let vision_base = vision_url.trim_end_matches('/');
     let vision_res = client
-        .post("http://localhost:5000/analyze")
+        .post(format!("{}/analyze", vision_base))
         .json(&json!({
             "image": browser_data.screenshot_b64,
             "dom_preview": dom_preview

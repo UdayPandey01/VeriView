@@ -2,8 +2,7 @@ mod api;
 mod policy;
 
 use axum::{
-    middleware,
-    Router,
+    Router, middleware,
     routing::{get, post},
 };
 
@@ -14,10 +13,16 @@ use tower_http::cors::CorsLayer;
 async fn main() {
     tracing_subscriber::fmt::init();
 
+    let http_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .pool_max_idle_per_host(20)
+        .build()
+        .expect("Failed to build HTTP client");
+
     let log_store = api::new_log_store();
     let redis_cache = init_redis_cache().await;
     let valid_api_keys = api::load_valid_api_keys();
-    let state = api::AppState::new(log_store, redis_cache, valid_api_keys);
+    let state = api::AppState::new(log_store, redis_cache, valid_api_keys, http_client);
 
     let navigate_route = Router::new()
         .route("/api/v1/navigate", post(api::secure_navigate))
@@ -36,9 +41,13 @@ async fn main() {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8082));
     println!("VeriView core gateway running on {}", addr);
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .expect("Failed to bind port 8082");
 
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+        .await
+        .expect("Failed to start server");
 }
 
 async fn health_check() -> &'static str {
@@ -48,7 +57,10 @@ async fn health_check() -> &'static str {
 async fn init_redis_cache() -> Option<api::RedisCache> {
     let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1/".to_string());
     let redis_url = redis_url.trim().to_string();
-    if redis_url.is_empty() || redis_url.eq_ignore_ascii_case("disabled") || redis_url.eq_ignore_ascii_case("off") {
+    if redis_url.is_empty()
+        || redis_url.eq_ignore_ascii_case("disabled")
+        || redis_url.eq_ignore_ascii_case("off")
+    {
         tracing::info!("Redis cache disabled (REDIS_URL is empty/off).");
         return None;
     }
