@@ -9,7 +9,6 @@ const IS_WSL =
 
 const HOST = IS_WSL ? process.env.WINDOWS_HOST || "172.24.48.1" : "localhost";
 
-// Initialize VeriView SDK
 const veriview = new VeriView({
   gatewayUrl: `http://${HOST}:8082`,
   timeout: 60000,
@@ -52,12 +51,10 @@ async function agentDecision(report, url) {
     return false;
   }
 
-  // Page is safe - proceed with interaction
   console.log(`\n${"✅".repeat(30)}`);
   console.log("✅ SAFE - VeriView Verification Passed");
   console.log(`${"✅".repeat(30)}`);
 
-  // Display safe snapshot
   if (report.safeSnapshot.length > 0) {
     console.log(
       `\n📄 Safe Text Snapshot (${report.safeSnapshot.length} items):`,
@@ -71,7 +68,6 @@ async function agentDecision(report, url) {
     }
   }
 
-  // Display and analyze interactive elements
   if (report.safeElements.length > 0) {
     console.log(
       `\n🎯 Interactive Elements (${report.safeElements.length} found):`,
@@ -81,7 +77,6 @@ async function agentDecision(report, url) {
       console.log(`   [${el.vv_id}] <${el.tag}> ${textPreview}`);
     }
 
-    // AI Agent Logic: Find login button
     const loginBtn = report.safeElements.find(
       (el) =>
         el.text.toLowerCase().includes("sign in") ||
@@ -118,7 +113,6 @@ async function runDemo() {
     console.log("💻 Environment: WSL (using Windows host IP)");
   }
 
-  // Health check
   console.log("\n🏥 Performing health check...");
   const isHealthy = await veriview.healthCheck();
   if (!isHealthy) {
@@ -132,7 +126,6 @@ async function runDemo() {
   }
   console.log("✅ VeriView Gateway is healthy\n");
 
-  // Test 1: Safe page
   console.log("\n" + "─".repeat(60));
   console.log("📋 TEST 1: SAFE MODE");
   console.log("─".repeat(60));
@@ -140,7 +133,6 @@ async function runDemo() {
   const safeReport = await veriview.inspect(TRAP_SAFE);
   const safeAllowed = await agentDecision(safeReport, TRAP_SAFE);
 
-  // Test 2: Attack page
   console.log("\n" + "─".repeat(60));
   console.log("📋 TEST 2: ATTACK MODE");
   console.log("─".repeat(60));
@@ -148,7 +140,6 @@ async function runDemo() {
   const attackReport = await veriview.inspect(TRAP_ATTACK);
   const attackAllowed = await agentDecision(attackReport, TRAP_ATTACK);
 
-  // Summary
   console.log("\n" + "🔷".repeat(60));
   console.log("🔷  DEMO COMPLETE - SUMMARY");
   console.log("🔷".repeat(60));
@@ -178,7 +169,6 @@ async function runDemo() {
   console.log("🔷".repeat(60) + "\n");
 }
 
-// Run demo with error handling
 runDemo().catch((error) => {
   console.error("\n❌ Demo failed with error:");
   console.error(error.message);

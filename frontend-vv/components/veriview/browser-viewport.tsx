@@ -19,7 +19,6 @@ function ScanPanel({ label, result, status, onScan, variant }: {
 
   return (
     <div className={`flex-1 flex flex-col border-r border-zinc-800 last:border-r-0`}>
-      {/* Panel Header */}
       <div className={`h-10 border-b border-zinc-800 px-4 flex items-center justify-between ${bgClass}`}>
         <div className="flex items-center gap-2">
           {isSafe ? <ShieldCheck className="w-4 h-4 text-cyan-400" /> : <ShieldAlert className="w-4 h-4 text-rose-400" />}
@@ -41,7 +40,6 @@ function ScanPanel({ label, result, status, onScan, variant }: {
         </button>
       </div>
 
-      {/* Panel Content */}
       <div className="flex-1 overflow-y-auto hide-scrollbar p-4 relative">
         {status === 'idle' && !result && (
           <div className="flex flex-col items-center justify-center h-full text-zinc-600">
@@ -70,7 +68,6 @@ function ScanPanel({ label, result, status, onScan, variant }: {
 
         {result && status === 'done' && (
           <div className="space-y-4">
-            {/* Verdict Banner */}
             <div className={`rounded-lg p-3 border ${result.blocked
               ? 'bg-rose-900/30 border-rose-500/40'
               : 'bg-emerald-900/20 border-emerald-500/30'
@@ -92,7 +89,6 @@ function ScanPanel({ label, result, status, onScan, variant }: {
               </div>
             </div>
 
-            {/* Bank Page Preview */}
             <div className="bg-white rounded-lg overflow-hidden shadow-lg">
               <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-3">
                 <h3 className="text-lg font-bold text-white">SecureBank</h3>
@@ -130,7 +126,6 @@ function ScanPanel({ label, result, status, onScan, variant }: {
               )}
             </div>
 
-            {/* Interactive Elements */}
             {result.interactive_elements.length > 0 && (
               <div>
                 <h4 className="text-xs font-mono font-semibold text-zinc-400 mb-2">INTERACTIVE ELEMENTS</h4>
@@ -146,7 +141,6 @@ function ScanPanel({ label, result, status, onScan, variant }: {
               </div>
             )}
 
-            {/* Safe Snapshot */}
             <div>
               <h4 className="text-xs font-mono font-semibold text-zinc-400 mb-2">VISIBLE TEXT (SAFE SNAPSHOT)</h4>
               <div className="bg-zinc-900 rounded p-3 text-xs font-mono text-zinc-300 space-y-1 max-h-32 overflow-y-auto hide-scrollbar">
@@ -169,7 +163,6 @@ export function BrowserViewport() {
 
   return (
     <div className="flex flex-col h-full bg-zinc-950">
-      {/* Top Bar */}
       <div className="h-10 border-b border-zinc-800 px-4 flex items-center justify-between bg-zinc-900/50">
         <h2 className="text-xs font-mono font-semibold text-blue-400 tracking-wider">DOM ANALYZER</h2>
         <button
@@ -182,7 +175,6 @@ export function BrowserViewport() {
         </button>
       </div>
 
-      {/* Side by Side Panels */}
       <div className="flex-1 flex min-h-0">
         <ScanPanel
           label="SAFE MODE"

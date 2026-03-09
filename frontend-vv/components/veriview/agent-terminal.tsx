@@ -31,7 +31,6 @@ export function AgentTerminal() {
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-green-500 to-transparent animate-scan-lines" />
       </div>
 
-      {/* Header */}
       <div className="h-10 border-b border-zinc-800 px-4 flex items-center justify-between bg-zinc-900/50 relative z-10">
         <div className="flex items-center gap-2">
           <Terminal className={`w-4 h-4 text-green-400 ${isActive ? 'animate-pulse' : ''}`} />
@@ -44,7 +43,6 @@ export function AgentTerminal() {
         )}
       </div>
 
-      {/* Terminal Content */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto hide-scrollbar p-3 font-mono text-xs relative z-10">
         <div className="space-y-0.5">
           {terminalLines.length === 0 ? (

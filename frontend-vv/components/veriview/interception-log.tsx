@@ -37,7 +37,6 @@ export function InterceptionLog() {
     <div className="flex flex-col h-full bg-zinc-950 relative">
       <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-cyan-500/5 to-transparent pointer-events-none" />
 
-      {/* Header */}
       <div className="h-10 border-b border-zinc-800 px-4 flex items-center justify-between relative z-10">
         <div className="flex items-center gap-2">
           <Activity className={`w-4 h-4 text-cyan-400 ${(safeStatus === 'scanning' || attackStatus === 'scanning') ? 'animate-pulse' : ''}`} />
@@ -48,7 +47,6 @@ export function InterceptionLog() {
         <span className="text-xs font-mono text-zinc-600">{pipelineLogs.length} events</span>
       </div>
 
-      {/* Scrolling content */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden hide-scrollbar">
         {pipelineLogs.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-zinc-600">
