@@ -156,10 +156,12 @@ app.post('/snap', async (req, res) => {
             console.warn(`Network idle wait timed out for ${url}: ${e?.message ?? e}`);
         }
 
-        const result = await injectSanitizer(page);
+        const [result, screenshotBuffer] = await Promise.all([
+            injectSanitizer(page),
+            page.screenshot({ fullPage: false, type: 'jpeg', quality: 80 })
+        ]);
         const cleanDOM = result.cleanNodes;
         const suspiciousDOM = result.suspiciousNodes;
-        const screenshotBuffer = await page.screenshot({ fullPage: false, type: 'jpeg', quality: 80 });
 
         console.log(`[SNAP] Done. ${cleanDOM.length} clean, ${suspiciousDOM.length} suspicious, screenshot captured.`);
 
