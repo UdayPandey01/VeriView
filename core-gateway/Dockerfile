@@ -6,7 +6,7 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs && cargo build --release || t
 COPY src ./src
 RUN cargo build --release
 FROM debian:bookworm-slim AS runtime
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3 passwd && rm -rf /var/lib/apt/lists/*
 RUN useradd -m -u 1000 veriview
 WORKDIR /app
 COPY --from=builder /app/target/release/core-gateway /usr/local/bin/core-gateway
