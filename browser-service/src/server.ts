@@ -1,10 +1,14 @@
 import express from 'express';
 import { chromium, Browser, BrowserContext } from 'playwright';
+import Redis from 'ioredis';
+import crypto from 'crypto';
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 
 let browserInstance: Browser | null = null;
+
+const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
 
 async function initBrowser() {
     if (!browserInstance) {
@@ -163,12 +167,22 @@ app.post('/snap', async (req, res) => {
         const cleanDOM = result.cleanNodes;
         const suspiciousDOM = result.suspiciousNodes;
 
+        const id = crypto.randomUUID();
+        try {
+            // Store raw JPEG bytes in Redis for 60s, shared across services.
+            await (redis as any).setBuffer(`vv:img:${id}`, screenshotBuffer as Buffer, 'EX', 60);
+        } catch (e: any) {
+            console.error(`Redis write failed for screenshot ${id}:`, e?.message ?? e);
+            res.status(503).json({ error: "Redis unavailable (screenshot blob store)" });
+            return;
+        }
+
         console.log(`[SNAP] Done. ${cleanDOM.length} clean, ${suspiciousDOM.length} suspicious, screenshot captured.`);
 
         res.json({
             clean_dom: cleanDOM,
             suspicious_nodes: suspiciousDOM,
-            screenshot_b64: screenshotBuffer.toString('base64')
+            screenshot_id: id
         });
 
     } catch (e: any) {
