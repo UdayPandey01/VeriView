@@ -211,7 +211,7 @@ pub struct SuspiciousNode {
 struct BrowserResponse {
     clean_dom: Vec<DomNode>,
     suspicious_nodes: Option<Vec<SuspiciousNode>>,
-    screenshot_b64: String,
+    screenshot_id: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -487,7 +487,7 @@ pub async fn secure_navigate(
     let vision_res = client
         .post(format!("{}/analyze", vision_base))
         .json(&json!({
-            "image": browser_data.screenshot_b64,
+            "screenshot_id": &browser_data.screenshot_id,
             "dom_preview": dom_preview
         }))
         .send()
