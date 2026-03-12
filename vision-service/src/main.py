@@ -1,5 +1,4 @@
 import os
-import base64
 import json
 import asyncio
 import uvicorn
@@ -7,11 +6,12 @@ import numpy as np
 import cv2
 import easyocr
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
 import google.generativeai as genai
 from dotenv import load_dotenv
+import redis.asyncio as redis
 
 load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
@@ -20,6 +20,9 @@ model = genai.GenerativeModel('gemini-3-flash-preview')
 print("Initializing EasyOCR (English)...")
 reader = easyocr.Reader(['en'], gpu=False)
 print("EasyOCR Ready")
+
+# Shared Redis blob store for screenshot bytes
+redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"), decode_responses=False)
 
 # Process pool for OCR so it doesn't block the event loop (each worker loads its own reader on first use).
 ocr_executor = ProcessPoolExecutor(max_workers=2)
@@ -90,7 +93,7 @@ Return ONLY valid JSON:
 
 
 class AnalyzeRequest(BaseModel):
-    image: str
+    screenshot_id: str
     dom_preview: Optional[List[str]] = None
 
 
@@ -99,11 +102,16 @@ async def analyze_screenshot(payload: AnalyzeRequest):
     print("Phase 3: Hybrid Vision Pipeline (OCR + Gemini)")
 
     try:
-        if "," in payload.image:
-            payload.image = payload.image.split(",")[1]
-        image_data = base64.b64decode(payload.image)
+        try:
+            image_bytes = await redis_client.get(f"vv:img:{payload.screenshot_id}")
+        except Exception as redis_error:
+            raise HTTPException(status_code=503, detail=f"Redis unavailable: {redis_error}")
 
-        nparr = np.frombuffer(image_data, np.uint8)
+        if image_bytes is None:
+            raise HTTPException(status_code=400, detail="Screenshot expired or not found in Redis")
+
+        # Keep a small sanity check here to fail-secure early on invalid bytes.
+        nparr = np.frombuffer(image_bytes, np.uint8)
         image_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if image_np is None:
             return {
@@ -121,11 +129,11 @@ async def analyze_screenshot(payload: AnalyzeRequest):
         loop = asyncio.get_event_loop()
 
         # Run OCR and Gemini in parallel; Gemini gets empty OCR list, we merge OCR results at the end.
-        ocr_future = loop.run_in_executor(ocr_executor, _run_ocr_sync, image_data)
+        ocr_future = loop.run_in_executor(ocr_executor, _run_ocr_sync, image_bytes)
         gemini_future = loop.run_in_executor(
             gemini_executor,
             _run_gemini_sync,
-            image_data,
+            image_bytes,
             dom_preview,
             []  # empty OCR for prompt when running in parallel
         )
