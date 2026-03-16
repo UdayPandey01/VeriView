@@ -1,9 +1,13 @@
 fastapi
 uvicorn
-easyocr
 opencv-python-headless
-google-generativeai
 pydantic
 numpy
 python-dotenv
 redis
+paddlepaddle
+paddleocr
+onnxruntime
+ImageHash
+Pillow
+groq
