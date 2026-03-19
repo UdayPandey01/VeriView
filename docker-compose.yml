@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   redis:
     image: redis:7-alpine
@@ -17,7 +15,7 @@ services:
     restart: unless-stopped
 
   browser-service:
-    build: ./browser-service
+    image: veriview-browser-service:latest
     container_name: vv-browser
     ports:
       - "3002:3002"
@@ -30,7 +28,7 @@ services:
     restart: unless-stopped
 
   vision-service:
-    build: ./vision-service
+    image: veriview-vision-service:latest
     container_name: vv-vision
     ports:
       - "5000:5000"
@@ -43,7 +41,7 @@ services:
     restart: unless-stopped
 
   gateway:
-    build: ./core-gateway
+    image: veriview-gateway:latest
     container_name: vv-gateway
     ports:
       - "8082:8082"
@@ -62,4 +60,3 @@ services:
 networks:
   veriview-net:
     driver: bridge
-
