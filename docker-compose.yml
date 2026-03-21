@@ -19,6 +19,17 @@ services:
     container_name: vv-browser
     ports:
       - "3002:3002"
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_URL=redis://redis:6379/
+      - BROWSER_FALLBACK_HOST=${BROWSER_FALLBACK_HOST:-host.docker.internal}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     deploy:
       resources:
         limits:
@@ -32,6 +43,15 @@ services:
     container_name: vv-vision
     ports:
       - "5000:5000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_URL=redis://redis:6379/
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GROQ_MODEL=${GROQ_MODEL:-meta-llama/llama-4-scout-17b-16e-instruct}
+      - OCR_TIMEOUT_SECS=${OCR_TIMEOUT_SECS:-8}
+      - LLM_TIMEOUT_SECS=${LLM_TIMEOUT_SECS:-60}
     deploy:
       resources:
         limits:
@@ -56,6 +76,7 @@ services:
       - BROWSER_URL=http://browser-service:3002
       - VISION_URL=http://vision-service:5000
       - VALID_API_KEYS=${VALID_API_KEYS:-key1,key2}
+      - HTTP_TIMEOUT_SECS=${HTTP_TIMEOUT_SECS:-180}
 
 networks:
   veriview-net:
