@@ -2,6 +2,8 @@ import express from 'express';
 import { chromium, Browser, BrowserContext } from 'playwright';
 import Redis from 'ioredis';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
@@ -9,13 +11,124 @@ app.use(express.json({ limit: '50mb' }));
 let browserInstance: Browser | null = null;
 
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+redis.on('error', (error) => {
+    console.error('[Redis] Connection error:', error?.message ?? error);
+});
+
+function isPrivateOrLocalHost(hostname: string): boolean {
+    const host = hostname.toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return true;
+    if (host.startsWith('10.')) return true;
+    if (host.startsWith('192.168.')) return true;
+    if (host.startsWith('172.')) {
+        const parts = host.split('.');
+        if (parts.length >= 2) {
+            const secondOctet = Number(parts[1]);
+            if (Number.isInteger(secondOctet) && secondOctet >= 16 && secondOctet <= 31) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+function buildNavigationCandidates(rawUrl: string): string[] {
+    const fallbackHost = process.env.BROWSER_FALLBACK_HOST || 'host.docker.internal';
+    const candidates: string[] = [];
+    try {
+        const parsed = new URL(rawUrl);
+        if (isPrivateOrLocalHost(parsed.hostname) && parsed.hostname !== fallbackHost) {
+            const original = rawUrl;
+            parsed.hostname = fallbackHost;
+            candidates.push(parsed.toString());
+            candidates.push(original);
+            return Array.from(new Set(candidates));
+        }
+    } catch {
+        return [rawUrl];
+    }
+    return [rawUrl];
+}
+
+async function gotoWithFallback(page: any, rawUrl: string) {
+    const candidates = buildNavigationCandidates(rawUrl);
+    let lastError: any = null;
+
+    for (const candidate of candidates) {
+        try {
+            if (candidate !== rawUrl) {
+                console.warn(`[SNAP] Retrying with fallback host: ${candidate}`);
+            }
+            await page.goto(candidate, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            return;
+        } catch (err: any) {
+            lastError = err;
+            const message = `${err?.message ?? err}`;
+            const shouldRetry = message.includes('ERR_CONNECTION_REFUSED')
+                || message.includes('ERR_NAME_NOT_RESOLVED')
+                || message.includes('ERR_CONNECTION_TIMED_OUT')
+                || message.includes('chrome-error://chromewebdata/');
+            if (!shouldRetry) {
+                throw err;
+            }
+            try {
+                await page.goto('about:blank', { waitUntil: 'domcontentloaded', timeout: 5000 });
+            } catch {
+                // ignore page reset issues between retries
+            }
+        }
+    }
+
+    throw lastError;
+}
+
+function resolveChromiumExecutablePath(): string | undefined {
+    const envPath = process.env.PLAYWRIGHT_EXECUTABLE_PATH || process.env.PUPPETEER_EXECUTABLE_PATH;
+    if (envPath && fs.existsSync(envPath)) {
+        return envPath;
+    }
+
+    const commonPaths = [
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser',
+    ];
+
+    for (const candidate of commonPaths) {
+        if (fs.existsSync(candidate)) {
+            return candidate;
+        }
+    }
+
+    const cacheRoot = '/home/pptruser/.cache/puppeteer/chrome-headless-shell';
+    if (fs.existsSync(cacheRoot)) {
+        const versions = fs.readdirSync(cacheRoot).sort().reverse();
+        for (const version of versions) {
+            const candidate = path.join(
+                cacheRoot,
+                version,
+                'chrome-headless-shell-linux64',
+                'chrome-headless-shell'
+            );
+            if (fs.existsSync(candidate)) {
+                return candidate;
+            }
+        }
+    }
+
+    return undefined;
+}
 
 async function initBrowser() {
     if (!browserInstance) {
+        const executablePath = resolveChromiumExecutablePath();
         browserInstance = await chromium.launch({
             headless: true,
+            executablePath,
             args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
+        console.log(`Playwright executable: ${executablePath || 'bundled default'}`);
         console.log("Browser: Speed Trap & Watchdog Ready");
     }
     return browserInstance;
@@ -152,7 +265,7 @@ app.post('/snap', async (req, res) => {
             observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
         });
 
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await gotoWithFallback(page, url);
 
         try {
             await page.waitForLoadState('networkidle', { timeout: 3000 });
