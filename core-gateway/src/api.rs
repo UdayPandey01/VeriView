@@ -1,9 +1,9 @@
 use axum::{
+    Json,
     extract::State,
     http::{Request, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
-    Json,
 };
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
@@ -70,7 +70,9 @@ pub fn load_valid_api_keys() -> HashSet<String> {
         .filter(|s| !s.is_empty())
         .collect();
     if keys.is_empty() {
-        tracing::warn!("VALID_API_KEYS is empty; /api/v1/navigate will reject all requests with 401");
+        tracing::warn!(
+            "VALID_API_KEYS is empty; /api/v1/navigate will reject all requests with 401"
+        );
     }
     keys
 }
@@ -82,7 +84,10 @@ fn api_key_redis_id(api_key: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(api_key.as_bytes());
     let digest = hasher.finalize();
-    digest.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+    digest
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>()
 }
 
 /// Returns Ok(true) if allowed, Ok(false) if rate limited, Err if Redis failed (fail-open).
@@ -108,7 +113,10 @@ async fn check_rate_limit(state: &AppState, api_key: &str) -> Result<bool, ()> {
     if count == 1 {
         let ttl = RATE_LIMIT_WINDOW_SECS as i64;
         if let Err(e) = conn.expire::<_, ()>(&key, ttl).await {
-            tracing::warn!("Rate limit: Redis EXPIRE failed (key may not expire): {}", e);
+            tracing::warn!(
+                "Rate limit: Redis EXPIRE failed (key may not expire): {}",
+                e
+            );
         }
     }
 
@@ -128,7 +136,10 @@ pub async fn auth_and_rate_limit(
     let token = match auth {
         Some(h) if h.starts_with("Bearer ") => h["Bearer ".len()..].trim(),
         _ => {
-            return (StatusCode::UNAUTHORIZED, "Missing or invalid Authorization header")
+            return (
+                StatusCode::UNAUTHORIZED,
+                "Missing or invalid Authorization header",
+            )
                 .into_response();
         }
     };
@@ -179,17 +190,26 @@ fn push_log(store: &LogStore, url: &str, phase: &str, message: &str, risk: u8) {
 }
 
 const DANGER_KEYWORDS: &[&str] = &[
-    "transfer",
-    "override",
-    "ignore",
-    "execute",
-    "password",
-    "confirm",
-    "sudo",
-    "admin",
-    "system override",
+    "transfer funds",
+    "wire transfer",
     "ignore previous",
+    "system override",
+    "run command",
+    "execute command",
+    "seed phrase",
+    "private key",
+    "exfiltrate",
+    "sudo",
 ];
+
+fn is_script_like_hidden_text(lower_text: &str) -> bool {
+    lower_text.contains("function(")
+        || lower_text.contains("window.")
+        || lower_text.contains("p.when(")
+        || lower_text.contains("createcarousel(")
+        || lower_text.contains("{\"")
+        || lower_text.contains("</script")
+}
 
 #[derive(Deserialize, Debug)]
 pub struct DomNode {
@@ -250,7 +270,10 @@ fn url_cache_key(url: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(url.as_bytes());
     let digest = hasher.finalize();
-    let hex = digest.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+    let hex = digest
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>();
     format!("vv:url:{}", hex)
 }
 
@@ -289,7 +312,10 @@ async fn redis_cache_setex(state: &AppState, key: &str, value: &NavigateResponse
     };
 
     let mut conn = redis_cache.conn.lock().await;
-    if let Err(e) = conn.set_ex::<_, _, ()>(key, serialized, CACHE_TTL_SECONDS).await {
+    if let Err(e) = conn
+        .set_ex::<_, _, ()>(key, serialized, CACHE_TTL_SECONDS)
+        .await
+    {
         tracing::warn!("Redis SETEX failed (continuing): {}", e);
     }
 }
@@ -323,7 +349,8 @@ pub async fn secure_navigate(
     push_log(store, url, "Phase 1", "Handshake initiated", 0);
     logs.push("Phase 1: Handshake initiated".to_string());
 
-    let browser_url = std::env::var("BROWSER_URL").unwrap_or_else(|_| "http://localhost:3002".to_string());
+    let browser_url =
+        std::env::var("BROWSER_URL").unwrap_or_else(|_| "http://localhost:3002".to_string());
     let browser_base = browser_url.trim_end_matches('/');
     let browser_res = client
         .post(format!("{}/snap", browser_base))
@@ -425,6 +452,9 @@ pub async fn secure_navigate(
     if let Some(ref suspicious) = browser_data.suspicious_nodes {
         for node in suspicious {
             let lower = node.text.to_lowercase();
+            if is_script_like_hidden_text(&lower) {
+                continue;
+            }
             for keyword in DANGER_KEYWORDS {
                 if lower.contains(keyword) {
                     hidden_threats.push(format!(
@@ -482,7 +512,8 @@ pub async fn secure_navigate(
         0,
     );
 
-    let vision_url = std::env::var("VISION_URL").unwrap_or_else(|_| "http://localhost:5000".to_string());
+    let vision_url =
+        std::env::var("VISION_URL").unwrap_or_else(|_| "http://localhost:5000".to_string());
     let vision_base = vision_url.trim_end_matches('/');
     let vision_res = client
         .post(format!("{}/analyze", vision_base))

@@ -13,8 +13,13 @@ use tower_http::cors::CorsLayer;
 async fn main() {
     tracing_subscriber::fmt::init();
 
+    let http_timeout_secs = std::env::var("HTTP_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(180);
+
     let http_client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(http_timeout_secs))
         .pool_max_idle_per_host(20)
         .build()
         .expect("Failed to build HTTP client");
