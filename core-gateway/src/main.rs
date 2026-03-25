@@ -36,11 +36,19 @@ async fn main() {
             api::auth_and_rate_limit,
         ));
 
+    let action_route = Router::new()
+        .route("/api/v1/action", post(api::execute_action))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            api::auth_and_rate_limit,
+        ));
+
     let app = Router::new()
         .route("/api/v1/health", get(health_check))
         .route("/api/v1/alert", post(api::receive_alert))
         .route("/api/v1/logs", get(api::get_logs))
         .merge(navigate_route)
+        .merge(action_route)
         .layer(CorsLayer::permissive())
         .with_state(state);
 
