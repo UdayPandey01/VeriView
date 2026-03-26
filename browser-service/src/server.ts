@@ -15,6 +15,10 @@ redis.on('error', (error) => {
     console.error('[Redis] Connection error:', error?.message ?? error);
 });
 
+// Session store for persistent browser contexts (sessionId -> {context, page})
+const sessionStore = new Map<string, { context: BrowserContext; page: any }>();
+const SESSION_TTL_MS = 5 * 60 * 1000; // 5 minutes session expiry
+
 function isPrivateOrLocalHost(hostname: string): boolean {
     const host = hostname.toLowerCase();
     if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return true;
@@ -80,6 +84,44 @@ async function gotoWithFallback(page: any, rawUrl: string) {
     }
 
     throw lastError;
+}
+
+async function bypassInterstitialIfPresent(page: any) {
+    try {
+        const bodyText = await page.locator('body').innerText({ timeout: 2000 });
+        const looksLikeInterstitial = /one more step|open the page|third-party git repository|rawgit\.hack/i.test(bodyText || '');
+        if (!looksLikeInterstitial) {
+            return false;
+        }
+
+        const buttonByRole = page.getByRole('button', { name: /open the page/i });
+        if (await buttonByRole.count()) {
+            await buttonByRole.first().click({ timeout: 5000 });
+            await page.waitForLoadState('domcontentloaded', { timeout: 15000 });
+            console.warn('[SNAP] Interstitial detected; clicked "Open the page" button.');
+            return true;
+        }
+
+        const linkByRole = page.getByRole('link', { name: /open the page/i });
+        if (await linkByRole.count()) {
+            await linkByRole.first().click({ timeout: 5000 });
+            await page.waitForLoadState('domcontentloaded', { timeout: 15000 });
+            console.warn('[SNAP] Interstitial detected; followed "Open the page" link.');
+            return true;
+        }
+
+        const fallbackLink = page.locator('a:has-text("Open the page")');
+        if (await fallbackLink.count()) {
+            await fallbackLink.first().click({ timeout: 5000 });
+            await page.waitForLoadState('domcontentloaded', { timeout: 15000 });
+            console.warn('[SNAP] Interstitial detected; followed fallback open link.');
+            return true;
+        }
+    } catch (e: any) {
+        console.warn(`[SNAP] Interstitial check failed: ${e?.message ?? e}`);
+    }
+
+    return false;
 }
 
 function resolveChromiumExecutablePath(): string | undefined {
@@ -153,6 +195,15 @@ async function injectSanitizer(page: any) {
             return m ? { r: parseInt(m[0]), g: parseInt(m[1]), b: parseInt(m[2]) } : { r: 0, g: 0, b: 0 };
         }
 
+        function parseCssNumber(value: string, fallback = 0) {
+            const n = Number.parseFloat((value || '').trim().replace('px', ''));
+            return Number.isFinite(n) ? n : fallback;
+        }
+
+        function isPositioned(pos: string) {
+            return pos === 'absolute' || pos === 'fixed' || pos === 'relative';
+        }
+
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
 
         let elementCount = 0;
@@ -167,10 +218,17 @@ async function injectSanitizer(page: any) {
             const rect = el.getBoundingClientRect();
 
             const reasons: string[] = [];
+            const fontSize = parseCssNumber(style.fontSize, 16);
+            const opacity = parseCssNumber(style.opacity, 1);
+            const zIndex = parseCssNumber(style.zIndex, 0);
+            const position = (style.position || '').toLowerCase();
 
             if (style.display === 'none') reasons.push("display:none");
             if (style.visibility === 'hidden') reasons.push("visibility:hidden");
             if (parseFloat(style.opacity) < 0.1) reasons.push(`opacity:${style.opacity}`);
+            if (fontSize < 2) reasons.push(`micro-text:${fontSize}px`);
+            if (opacity < 0.05) reasons.push(`transparent:${opacity}`);
+            if (isPositioned(position) && zIndex < 0) reasons.push(`buried:z=${zIndex},pos=${position}`);
             if (rect.width < 2 || rect.height < 2) reasons.push(`tiny:${Math.round(rect.width)}x${Math.round(rect.height)}`);
 
             if (rect.left + rect.width < 0 || rect.top + rect.height < 0 ||
@@ -309,6 +367,254 @@ app.post('/snap', async (req, res) => {
                 console.error("Failed to close browser context:", e?.message ?? e);
             }
         }
+    }
+});
+
+// POST /action - Execute click or type action on an element by vv_id
+interface ActionRequest {
+    sessionId: string;
+    action: 'click' | 'type';
+    vv_id: string;
+    value?: string;
+}
+
+interface ActionResponse {
+    success: boolean;
+    message?: string;
+    error?: string;
+}
+
+app.post('/action', async (req: express.Request<ActionRequest>, res: express.Response<ActionResponse>) => {
+    const { sessionId, action, vv_id, value } = req.body;
+    console.log(`[ACTION] Received: ${action} on ${vv_id} for session ${sessionId}`);
+
+    if (!sessionId || !vv_id || !action) {
+        return res.status(400).json({
+            success: false,
+            error: "Missing required fields: sessionId, action, vv_id"
+        });
+    }
+
+    if (action === 'type' && !value) {
+        return res.status(400).json({
+            success: false,
+            error: "Type action requires 'value' field"
+        });
+    }
+
+    // Look up session from memory
+    const session = sessionStore.get(sessionId);
+    if (!session) {
+        console.error(`[ACTION] Session not found: ${sessionId}`);
+        return res.status(404).json({
+            success: false,
+            error: "Session not found or expired"
+        });
+    }
+
+    const { page } = session;
+
+    try {
+        // Find element by vv_id attribute
+        const selector = `[data-vv-id="${vv_id}"]`;
+        const element = await page.$(selector);
+
+        if (!element) {
+            console.error(`[ACTION] Element not found: ${vv_id}`);
+            return res.status(404).json({
+                success: false,
+                error: `Element with vv_id "${vv_id}" not found on page`
+            });
+        }
+
+        // Execute the action
+        if (action === 'click') {
+            await element.click({ timeout: 5000 });
+            console.log(`[ACTION] Clicked element ${vv_id}`);
+        } else if (action === 'type') {
+            await element.fill(value!, { timeout: 5000 });
+            console.log(`[ACTION] Typed into element ${vv_id}`);
+        }
+
+        // Wait for network idle to ensure page has finished changing
+        try {
+            await page.waitForLoadState('networkidle', { timeout: 5000 });
+            console.log('[ACTION] Network idle achieved');
+        } catch (e: any) {
+            console.warn(`[ACTION] Network idle timeout (continuing): ${e?.message ?? e}`);
+        }
+
+        res.json({ success: true, message: "Action completed successfully" });
+
+    } catch (e: any) {
+        console.error(`[ACTION] Error: ${e?.message ?? e}`);
+        res.status(500).json({
+            success: false,
+            error: `Action failed: ${e?.message ?? e}`
+        });
+    }
+});
+
+// POST /snap-with-session - Navigate and create persistent session
+interface SnapWithSessionRequest {
+    url: string;
+}
+
+interface SnapWithSessionResponse {
+    session_id: string;
+    clean_dom: any[];
+    suspicious_nodes: any[];
+    screenshot_id: string;
+}
+
+app.post('/snap-with-session', async (req: express.Request<SnapWithSessionRequest>, res: express.Response<SnapWithSessionResponse>) => {
+    const { url } = req.body;
+    console.log(`[SNAP-SESSION] Received request for ${url}`);
+
+    let context: BrowserContext | null = null;
+    let sessionId = crypto.randomUUID();
+
+    try {
+        const browser = await initBrowser();
+        context = await browser.newContext({
+            viewport: { width: 1920, height: 1080 },
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        });
+        const page = await context.newPage();
+
+        // Store session in memory
+        sessionStore.set(sessionId, { context, page });
+        console.log(`[SNAP-SESSION] Created session ${sessionId}`);
+
+        // Set up session expiry
+        setTimeout(() => {
+            sessionStore.delete(sessionId);
+            console.log(`[SNAP-SESSION] Session ${sessionId} expired and cleaned up`);
+        }, SESSION_TTL_MS);
+
+        await page.addInitScript(() => {
+            const observer = new MutationObserver((mutations: MutationRecord[]) => {
+                let addedCount = 0;
+                for (const m of mutations) {
+                    addedCount += m.addedNodes.length;
+                }
+                if (addedCount > 0) {
+                    console.log(`WATCHDOG: ${addedCount} new DOM nodes injected after load`);
+                }
+            });
+            observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+        });
+
+        await gotoWithFallback(page, url);
+        await bypassInterstitialIfPresent(page);
+
+        try {
+            await page.waitForLoadState('networkidle', { timeout: 3000 });
+        } catch (e: any) {
+            console.warn(`Network idle wait timed out for ${url}: ${e?.message ?? e}`);
+        }
+
+        const [result, screenshotBuffer] = await Promise.all([
+            injectSanitizer(page),
+            page.screenshot({ fullPage: false, type: 'jpeg', quality: 80 })
+        ]);
+        const cleanDOM = result.cleanNodes;
+        const suspiciousDOM = result.suspiciousNodes;
+
+        const id = crypto.randomUUID();
+        try {
+            await (redis as any).setBuffer(`vv:img:${id}`, screenshotBuffer as Buffer, 'EX', 60);
+        } catch (e: any) {
+            console.error(`Redis write failed for screenshot ${id}:`, e?.message ?? e);
+        }
+
+        console.log(`[SNAP-SESSION] Done. Session: ${sessionId}, ${cleanDOM.length} clean, ${suspiciousDOM.length} suspicious`);
+
+        res.json({
+            session_id: sessionId,
+            clean_dom: cleanDOM,
+            suspicious_nodes: suspiciousDOM,
+            screenshot_id: id
+        });
+
+    } catch (e: any) {
+        console.error("Browser Error:", e.message);
+        // Clean up session on error
+        if (sessionId && sessionStore.has(sessionId)) {
+            const session = sessionStore.get(sessionId);
+            if (session) {
+                await session.context.close().catch(() => {});
+            }
+            sessionStore.delete(sessionId);
+        }
+        res.status(500).json({ error: "Pipeline Failed at Phase 2" } as any);
+    }
+});
+
+// POST /resnap - Take a new DOM snapshot of existing session (for rescan loop)
+interface ResnapRequest {
+    sessionId: string;
+}
+
+interface ResnapResponse {
+    session_id: string;
+    clean_dom: any[];
+    suspicious_nodes: any[];
+    screenshot_id: string;
+    current_url: string;
+}
+
+app.post('/resnap', async (req: express.Request<ResnapRequest>, res: express.Response<ResnapResponse>) => {
+    const { sessionId } = req.body;
+    console.log(`[RESNAP] Resnapshot request for session ${sessionId}`);
+
+    if (!sessionId) {
+        return res.status(400).json({ error: "Missing sessionId" } as any);
+    }
+
+    const session = sessionStore.get(sessionId);
+    if (!session) {
+        console.error(`[RESNAP] Session not found: ${sessionId}`);
+        return res.status(404).json({ error: "Session not found or expired" } as any);
+    }
+
+    const { page } = session;
+
+    try {
+        // Get current URL
+        const currentUrl = page.url();
+        console.log(`[RESNAP] Current URL: ${currentUrl}`);
+
+        // Wait a moment for any pending animations/transitions
+        await page.waitForTimeout(500);
+
+        const [result, screenshotBuffer] = await Promise.all([
+            injectSanitizer(page),
+            page.screenshot({ fullPage: false, type: 'jpeg', quality: 80 })
+        ]);
+        const cleanDOM = result.cleanNodes;
+        const suspiciousDOM = result.suspiciousNodes;
+
+        const id = crypto.randomUUID();
+        try {
+            await (redis as any).setBuffer(`vv:img:${id}`, screenshotBuffer as Buffer, 'EX', 60);
+        } catch (e: any) {
+            console.error(`Redis write failed for screenshot ${id}:`, e?.message ?? e);
+        }
+
+        console.log(`[RESNAP] Done. ${cleanDOM.length} clean, ${suspiciousDOM.length} suspicious`);
+
+        res.json({
+            session_id: sessionId,
+            clean_dom: cleanDOM,
+            suspicious_nodes: suspiciousDOM,
+            screenshot_id: id,
+            current_url: currentUrl
+        });
+
+    } catch (e: any) {
+        console.error(`[RESNAP] Error: ${e?.message ?? e}`);
+        res.status(500).json({ error: "Resnapshot failed" } as any);
     }
 });
 
