@@ -435,6 +435,7 @@ pub struct SuspiciousNode {
 
 #[derive(Deserialize, Debug)]
 struct BrowserResponse {
+    session_id: String,
     clean_dom: Vec<DomNode>,
     suspicious_nodes: Option<Vec<SuspiciousNode>>,
     screenshot_id: String,
@@ -456,6 +457,7 @@ pub struct NavigateRequest {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct NavigateResponse {
+    pub session_id: String,
     pub safe_snapshot: Vec<String>,
     pub interactive_elements: Vec<InteractiveElement>,
     pub risk_score: u8,
@@ -558,7 +560,7 @@ pub async fn secure_navigate(
         std::env::var("BROWSER_URL").unwrap_or_else(|_| "http://localhost:3002".to_string());
     let browser_base = browser_url.trim_end_matches('/');
     let browser_res = client
-        .post(format!("{}/snap", browser_base))
+        .post(format!("{}/snap-with-session", browser_base))
         .json(&json!({ "url": url }))
         .send()
         .await;
@@ -569,6 +571,7 @@ pub async fn secure_navigate(
                 let msg = format!("Browser Service failed with status: {}", res.status());
                 push_log(store, url, "Phase 2", &msg, 100);
                 return Json(NavigateResponse {
+                    session_id: String::new(),
                     safe_snapshot: vec![],
                     interactive_elements: vec![],
                     risk_score: 100,
@@ -583,6 +586,7 @@ pub async fn secure_navigate(
                     let msg = format!("Browser Service JSON parse failed: {}", e);
                     push_log(store, url, "Phase 2", &msg, 100);
                     return Json(NavigateResponse {
+                        session_id: String::new(),
                         safe_snapshot: vec![],
                         interactive_elements: vec![],
                         risk_score: 100,
@@ -596,6 +600,7 @@ pub async fn secure_navigate(
             let msg = format!("Browser Service failed: {}", e);
             push_log(store, url, "Phase 2", &msg, 100);
             return Json(NavigateResponse {
+                session_id: String::new(),
                 safe_snapshot: vec![],
                 interactive_elements: vec![],
                 risk_score: 100,
@@ -695,6 +700,7 @@ pub async fn secure_navigate(
         logs.push(format!("Phase 3: {}", msg));
 
         let resp = NavigateResponse {
+            session_id: browser_data.session_id.clone(),
             safe_snapshot: dom_preview,
             interactive_elements,
             risk_score: 0,
@@ -748,6 +754,7 @@ pub async fn secure_navigate(
                 push_log(store, url, "Phase 3", &msg, 100);
                 logs.push(format!("Phase 3: {}", msg));
                 return Json(NavigateResponse {
+                    session_id: String::new(),
                     safe_snapshot: vec![],
                     interactive_elements,
                     risk_score: 100,
@@ -763,6 +770,7 @@ pub async fn secure_navigate(
                     push_log(store, url, "Phase 3", &msg, 100);
                     logs.push(format!("Phase 3: {}", msg));
                     return Json(NavigateResponse {
+                        session_id: String::new(),
                         safe_snapshot: vec![],
                         interactive_elements,
                         risk_score: 100,
@@ -777,6 +785,7 @@ pub async fn secure_navigate(
             push_log(store, url, "Phase 3", &msg, 100);
             logs.push(format!("Phase 3: {}", msg));
             return Json(NavigateResponse {
+                session_id: String::new(),
                 safe_snapshot: vec![],
                 interactive_elements,
                 risk_score: 100,
@@ -865,6 +874,7 @@ pub async fn secure_navigate(
     };
 
     let resp = NavigateResponse {
+        session_id: browser_data.session_id.clone(),
         safe_snapshot,
         interactive_elements,
         risk_score,
