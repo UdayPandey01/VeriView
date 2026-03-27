@@ -1,0 +1,86 @@
+.nav {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 500;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  padding: 0 40px;
+  gap: 0;
+  border-bottom: 1px solid var(--b1);
+  background: rgba(5,5,8,.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: -.025em;
+  text-decoration: none;
+  margin-right: 36px;
+  flex-shrink: 0;
+}
+
+.logoIcon {
+  width: 22px; height: 22px;
+  display: grid;
+  place-items: center;
+}
+
+.links {
+  display: flex;
+  flex: 1;
+}
+
+.link {
+  padding: 0 13px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  color: var(--t3);
+  cursor: pointer;
+  transition: color .15s;
+  user-select: none;
+}
+.link:hover { color: var(--t1); }
+
+.right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.btnGhost,
+.btnSolid {
+  height: 30px;
+  padding: 0 14px;
+  font-size: 12.5px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: var(--sans);
+  transition: all .15s;
+  border: none;
+}
+
+.btnGhost {
+  background: transparent;
+  border: 1px solid var(--b1);
+  color: var(--t2);
+}
+.btnGhost:hover {
+  border-color: var(--b2);
+  color: var(--t1);
+}
+
+.btnSolid {
+  background: #fff;
+  color: #000;
+  font-weight: 500;
+}
+.btnSolid:hover { background: #e8e8e8; }

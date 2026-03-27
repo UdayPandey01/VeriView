@@ -1,0 +1,43 @@
+.footer {
+  position: relative;
+  overflow: hidden;
+  background: #020202;
+}
+
+/* Big wordmark */
+.wordmarkWrap {
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  height: 310px;
+  padding: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.wordmark {
+  font-size: clamp(125px, 17.5vw, 275px);
+  font-weight: 720;
+  letter-spacing: -.055em;
+  line-height: .86;
+  transform: translateX(2.8%);
+  background: linear-gradient(
+    182deg,
+    rgba(255, 255, 255, 0.26) 0%,
+    rgba(255, 255, 255, 0.14) 24%,
+    rgba(255, 255, 255, 0.06) 49%,
+    rgba(255, 255, 255, 0.022) 72%,
+    rgba(255, 255, 255, 0.006) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-stroke: 1px rgba(255,255,255,.08);
+  text-stroke: 1px rgba(255,255,255,.08);
+  text-shadow:
+    0 1px 0 rgba(255,255,255,.1),
+    0 -1px 0 rgba(255,255,255,.03),
+    0 14px 30px rgba(0,0,0,.65);
+  user-select: none;
+  font-family: var(--sans);
+}

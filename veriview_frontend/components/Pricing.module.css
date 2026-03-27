@@ -1,0 +1,101 @@
+.wrap  { padding: 112px 40px; border-bottom: 1px solid var(--b1); }
+.inner { max-width: 1040px; margin: 0 auto; }
+
+.grid {
+  margin-top: 60px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--b1);
+  border: 1px solid var(--b1);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.card {
+  background: var(--s1);
+  padding: 32px;
+  position: relative;
+  overflow: hidden;
+  transition: background .2s;
+}
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at var(--mx, 50%) var(--my, 50%),
+    rgba(124,58,237,.05),
+    transparent 60%
+  );
+  opacity: 0;
+  transition: opacity .3s;
+}
+.card:hover           { background: var(--s2); }
+.card:hover::before   { opacity: 1; }
+.featured             { background: var(--s2); }
+
+.tier {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--t4);
+  letter-spacing: .06em;
+  margin-bottom: 14px;
+}
+
+.price {
+  font-size: 42px;
+  font-weight: 700;
+  letter-spacing: -.05em;
+  color: #fff;
+  line-height: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.period { font-size: 14px; font-weight: 400; color: var(--t3); }
+
+.desc {
+  font-size: 13.5px;
+  color: var(--t3);
+  line-height: 1.65;
+  margin-bottom: 24px;
+}
+
+.cta {
+  width: 100%;
+  height: 36px;
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-weight: 500;
+  transition: all .15s;
+  margin-bottom: 24px;
+}
+.ctaOutline {
+  background: transparent;
+  border: 1px solid var(--b1);
+  color: var(--t2);
+}
+.ctaOutline:hover { border-color: var(--b2); color: var(--t1); }
+.ctaSolid         { background: #fff; border: 1px solid #fff; color: #000; }
+.ctaSolid:hover   { background: #e8e8e8; }
+
+.features {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  border-top: 1px solid var(--b1);
+  padding-top: 22px;
+}
+.feat {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  color: var(--t3);
+}
+.feat svg { flex-shrink: 0; }

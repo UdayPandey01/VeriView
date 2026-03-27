@@ -1,0 +1,43 @@
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-top: 1px solid var(--b1);
+  border-bottom: 1px solid var(--b1);
+}
+
+.cell {
+  padding: 36px 40px;
+  border-right: 1px solid var(--b1);
+  position: relative;
+  overflow: hidden;
+  transition: background .2s;
+  cursor: default;
+}
+.cell:last-child { border-right: 0; }
+.cell:hover { background: rgba(255,255,255,.02); }
+
+.cell::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(124,58,237,.4), transparent);
+  transform: scaleX(0);
+  transition: transform .4s;
+}
+.cell:hover::after { transform: scaleX(1); }
+
+.num {
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -.05em;
+  color: #fff;
+  line-height: 1;
+  margin-bottom: 10px;
+  font-family: var(--mono);
+}
+.label {
+  font-size: 13px;
+  color: var(--t3);
+  line-height: 1.55;
+}
