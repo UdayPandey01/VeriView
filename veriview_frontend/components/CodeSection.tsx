@@ -3,30 +3,32 @@ import { useEffect, useRef, useState } from 'react'
 import styles from './CodeSection.module.css'
 
 const RESPONSE_ROWS = [
-  { v: 'SAFE',    id: 'sc_01hwx · risk: 4',                  ms: '82ms', cls: 'ok'   },
-  { v: 'SAFE',    id: 'sc_01hwy · risk: 9',                  ms: '91ms', cls: 'ok'   },
-  { v: 'BLOCKED', id: 'sc_01hwz · risk: 94 · opacity+z+ocr', ms: '87ms', cls: 'bad'  },
-  { v: 'SAFE',    id: 'sc_01hxa · risk: 3',                  ms: '78ms', cls: 'ok'   },
-  { v: 'REVIEW',  id: 'sc_01hxb · risk: 41 · contrast',      ms: '94ms', cls: 'warn' },
-  { v: 'SAFE',    id: 'sc_01hxc · risk: 2',                  ms: '85ms', cls: 'ok'   },
-  { v: 'BLOCKED', id: 'sc_01hxd · risk: 88 · viewport+layer',ms: '92ms', cls: 'bad'  },
-  { v: 'SAFE',    id: 'sc_01hxe · risk: 6',                  ms: '79ms', cls: 'ok'   },
+  { v: 'SAFE', id: 'sc_01hwx · risk: 4', ms: '82ms', cls: 'ok' },
+  { v: 'SAFE', id: 'sc_01hwy · risk: 9', ms: '91ms', cls: 'ok' },
+  { v: 'BLOCKED', id: 'sc_01hwz · risk: 94 · opacity+z+ocr', ms: '87ms', cls: 'bad' },
+  { v: 'SAFE', id: 'sc_01hxa · risk: 3', ms: '78ms', cls: 'ok' },
+  { v: 'REVIEW', id: 'sc_01hxb · risk: 41 · contrast', ms: '94ms', cls: 'warn' },
+  { v: 'SAFE', id: 'sc_01hxc · risk: 2', ms: '85ms', cls: 'ok' },
+  { v: 'BLOCKED', id: 'sc_01hxd · risk: 88 · viewport+layer', ms: '92ms', cls: 'bad' },
+  { v: 'SAFE', id: 'sc_01hxe · risk: 6', ms: '79ms', cls: 'ok' },
 ]
 
 const LANGS = ['Node.js', 'Python', 'Rust', 'cURL']
 
-const CODE_NODE = `<span class="cc">// npm i @veriview/sdk</span>
-<span class="ck">import</span> <span class="cm">{ <span class="cn">VeriView</span> }</span> <span class="ck">from</span> <span class="cs">'@veriview/sdk'</span>
+const CODE_NODE = `<span class="cc">// npm i @veriview/veriview-core</span>
+<span class="ck">import</span> <span class="cm">{ <span class="cn">VeriView</span> }</span> <span class="ck">from</span> <span class="cs">'@veriview/veriview-core'</span>
 
-<span class="ck">const</span> <span class="cm">vv</span> <span class="ck">=</span> <span class="ck">new</span> <span class="cn">VeriView</span><span class="cm">(process.env.<span class="co">VV_KEY</span>)</span>
+<span class="ck">const</span> <span class="cm">vv</span> <span class="ck">=</span> <span class="ck">new</span> <span class="cn">VeriView</span><span class="cm">({</span>
+<span class="cm">  apiKey: process.env.<span class="co">VERIVIEW_API_KEY</span>!,</span>
+<span class="cm">  gatewayUrl: process.env.<span class="co">VERIVIEW_BACKEND_URL</span> ?? <span class="cs">'http://13.51.169.6:8082'</span>,</span>
+<span class="cm">})</span>
 
 <span class="cc">// Wrap every agent.browse() call</span>
 <span class="ck">export async function</span> <span class="cn">safeBrowse</span><span class="cm">(url: <span class="ck">string</span>) {</span>
-<span class="cm">  <span class="ck">const</span> { threat_detected, risk_score } =</span>
-<span class="cm">    <span class="ck">await</span> vv.<span class="cn">scan</span>({ url, axes: <span class="cs">'all'</span> })</span>
+<span class="cm">  <span class="ck">const</span> report <span class="ck">=</span> <span class="ck">await</span> vv.<span class="cn">inspect</span>(url)</span>
 
-<span class="cm">  <span class="ck">if</span> (threat_detected) {</span>
-<span class="cm">    <span class="ck">throw new</span> <span class="cn">InjectionError</span>(url, risk_score)</span>
+<span class="cm">  <span class="ck">if</span> (report.blocked) {</span>
+<span class="cm">    <span class="ck">throw new</span> <span class="cn">Error</span>(<span class="cs">'Blocked by VeriView (risk: '</span> + report.riskScore + <span class="cs">')'</span>)</span>
 <span class="cm">  }</span>
 
 <span class="cm">  <span class="cc">// Safe. Let agent proceed.</span></span>
@@ -90,7 +92,7 @@ const CODE_MAP: Record<string, string> = {
 }
 
 export default function CodeSection() {
-  const ref  = useRef<HTMLDivElement>(null)
+  const ref = useRef<HTMLDivElement>(null)
   const [lang, setLang] = useState('Node.js')
 
   useEffect(() => {

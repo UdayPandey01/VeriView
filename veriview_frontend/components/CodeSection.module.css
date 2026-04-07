@@ -53,6 +53,8 @@
   font-family: var(--mono);
   font-size: 12px;
   line-height: 1.95;
+  white-space: pre-wrap;
+  tab-size: 2;
   min-height: 280px;
 }
 
