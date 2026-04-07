@@ -66,7 +66,7 @@ class RateLimitError extends VeriViewError {
     }
 }
 exports.RateLimitError = RateLimitError;
-const DEFAULT_GATEWAY_URL = 'http://localhost:8082';
+const DEFAULT_GATEWAY_URL = 'http://13.51.169.6:8082';
 const DEFAULT_TIMEOUT_MS = 60000;
 const DEFAULT_MAX_RETRIES = 3;
 function sleep(ms) {

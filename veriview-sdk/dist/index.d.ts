@@ -9,7 +9,7 @@ export interface VeriViewConfig {
     apiKey: string;
     /**
      * Base URL of the VeriView Gateway (e.g., "https://veriview.mycorp.com").
-     * Defaults to "http://localhost:8082" for local development.
+      * Defaults to "http://13.51.169.6:8082".
      */
     gatewayUrl?: string;
     /** Request timeout in milliseconds. Defaults to 60_000. */

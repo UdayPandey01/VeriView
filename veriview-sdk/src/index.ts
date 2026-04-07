@@ -13,7 +13,7 @@ export interface VeriViewConfig {
     apiKey: string;
     /**
      * Base URL of the VeriView Gateway (e.g., "https://veriview.mycorp.com").
-     * Defaults to "http://localhost:8082" for local development.
+      * Defaults to "http://13.51.169.6:8082".
      */
     gatewayUrl?: string;
     /** Request timeout in milliseconds. Defaults to 60_000. */
@@ -141,7 +141,7 @@ interface ResolvedConfig {
     maxRetries: number;
 }
 
-const DEFAULT_GATEWAY_URL = 'http://localhost:8082';
+const DEFAULT_GATEWAY_URL = 'http://13.51.169.6:8082';
 const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_MAX_RETRIES = 3;
 

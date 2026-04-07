@@ -75,8 +75,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Forward to local VeriView gateway (configurable)
-  const backendUrl = process.env.VERIVIEW_BACKEND_URL ?? 'http://localhost:8082'
+  // Forward to VeriView gateway (configurable)
+  const backendUrl = process.env.VERIVIEW_BACKEND_URL ?? 'http://13.51.169.6:8082'
   const apiKey = process.env.VERIVIEW_API_KEY ?? 'key1'
 
   try {
